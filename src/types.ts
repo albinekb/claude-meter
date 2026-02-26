@@ -46,6 +46,16 @@ export interface TokenResult {
   orgUuid?: string;   // organization UUID from credentials file
 }
 
+// Stats-cache snapshot — read from ~/.claude/stats-cache.json (local, no auth needed)
+export interface StatsCacheSnapshot {
+  date: string;                           // "YYYY-MM-DD" for today
+  totalTokensToday: number;               // sum across all models for today
+  tokensByModel: Record<string, number>;  // per-model token counts for today
+  messageCountToday: number;              // messages today
+  sessionCountToday: number;              // sessions today
+  fetchedAt: Date;
+}
+
 // Admin API snapshot (enterprise accounts with sk-ant-admin- keys)
 export interface AdminUsageBucket {
   startingAt: string;

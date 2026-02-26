@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { UsageSnapshot, AdminSnapshot, EnterpriseSnapshot, ExtensionError, ExtensionConfig, HistoryTuple } from "./types";
+import { UsageSnapshot, AdminSnapshot, EnterpriseSnapshot, StatsCacheSnapshot, ExtensionError, ExtensionConfig, HistoryTuple } from "./types";
 import { formatTokens } from "./adminApi";
 
 export function parseResetAt(resetsAt: string): string {
@@ -136,6 +136,36 @@ export class ClaudeUsageStatusBar {
     const ago = Math.round((Date.now() - snapshot.fetchedAt.getTime()) / 1000);
     md.appendMarkdown(`---\n_Updated ${ago}s ago · Click for details_`);
     return md;
+  }
+
+  showStatsCacheUsage(snapshot: StatsCacheSnapshot): void {
+    const tokens = formatTokens(snapshot.totalTokensToday);
+    const msgs = snapshot.messageCountToday;
+
+    const parts: string[] = [`Today:${tokens}`];
+    if (msgs > 0) { parts.push(`${msgs} msgs`); }
+    this.item.text = `$(pulse) ${parts.join("  ")}`;
+    this.item.color = undefined;
+    this.item.backgroundColor = undefined;
+
+    const md = new vscode.MarkdownString("", true);
+    md.isTrusted = true;
+    md.appendMarkdown("**Claude Meter (Stats Cache)**\n\n");
+    md.appendMarkdown(`**Today's tokens**: ${snapshot.totalTokensToday.toLocaleString()}\n\n`);
+    if (msgs > 0) {
+      md.appendMarkdown(`**Messages**: ${msgs}  \n**Sessions**: ${snapshot.sessionCountToday}\n\n`);
+    }
+    const models = Object.entries(snapshot.tokensByModel);
+    if (models.length > 0) {
+      md.appendMarkdown("**By model**:\n");
+      for (const [model, count] of models) {
+        md.appendMarkdown(`- \`${model}\`: ${formatTokens(count)}\n`);
+      }
+      md.appendMarkdown("\n");
+    }
+    const ago = Math.round((Date.now() - snapshot.fetchedAt.getTime()) / 1000);
+    md.appendMarkdown(`---\n_From ~/.claude/stats-cache.json · Updated ${ago}s ago · Click for details_`);
+    this.item.tooltip = md;
   }
 
   showEnterpriseUsage(snapshot: EnterpriseSnapshot): void {
