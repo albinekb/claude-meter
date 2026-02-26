@@ -5,11 +5,12 @@ import { fetchUsage, isExtensionError, normalizeResponse } from "./usageApi";
 import { fetchAdminUsage, isAdminError } from "./adminApi";
 import { fetchAccountUuid, fetchEnterpriseSpend, isEnterpriseError } from "./enterpriseApi";
 import { resolveToken, promptForManualToken, getCredentialsFilePaths } from "./tokenProvider";
+import { readStatsCache, getStatsCachePath } from "./statsCacheProvider";
 import { RefreshScheduler } from "./refreshScheduler";
 import { DetailPanel } from "./detailPanel";
 import { ErrorHandler } from "./errorHandler";
 import { getConfig, onConfigChange } from "./config";
-import { UsageSnapshot, AdminSnapshot, EnterpriseSnapshot, HistoryTuple, DailyAggregate } from "./types";
+import { UsageSnapshot, AdminSnapshot, EnterpriseSnapshot, StatsCacheSnapshot, HistoryTuple, DailyAggregate } from "./types";
 
 let statusBar: ClaudeUsageStatusBar;
 let scheduler: RefreshScheduler;
@@ -17,6 +18,7 @@ let errorHandler: ErrorHandler;
 let lastSnapshot: UsageSnapshot | null = null;
 let lastAdminSnapshot: AdminSnapshot | null = null;
 let lastEnterpriseSnapshot: EnterpriseSnapshot | null = null;
+let lastStatsCacheSnapshot: StatsCacheSnapshot | null = null;
 let extensionUri: vscode.Uri;
 let extensionContext!: vscode.ExtensionContext;
 
@@ -86,6 +88,8 @@ export function activate(context: vscode.ExtensionContext): void {
         DetailPanel.show({ kind: "enterprise", data: lastEnterpriseSnapshot }, extensionUri, history);
       } else if (lastSnapshot) {
         DetailPanel.show({ kind: "oauth", data: lastSnapshot }, extensionUri, history);
+      } else if (lastStatsCacheSnapshot) {
+        DetailPanel.show({ kind: "stats-cache", data: lastStatsCacheSnapshot }, extensionUri, history);
       } else {
         DetailPanel.show(null, extensionUri, history);
       }
@@ -132,6 +136,20 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(watcher, watcher.onDidCreate(onCredChange), watcher.onDidChange(onCredChange));
   }
 
+  // Watch stats-cache so usage updates from Claude Code sessions appear immediately
+  const statsCachePath = getStatsCachePath();
+  const statsCachePattern = new vscode.RelativePattern(
+    vscode.Uri.file(path.dirname(statsCachePath)),
+    path.basename(statsCachePath)
+  );
+  const statsCacheWatcher = vscode.workspace.createFileSystemWatcher(statsCachePattern, false, false, true);
+  const onStatsCacheChange = () => { void performRefresh(); };
+  context.subscriptions.push(
+    statsCacheWatcher,
+    statsCacheWatcher.onDidCreate(onStatsCacheChange),
+    statsCacheWatcher.onDidChange(onStatsCacheChange)
+  );
+
   // Immediate fetch on activation
   void performRefresh();
 
@@ -142,13 +160,30 @@ async function performRefresh(): Promise<void> {
   const config = getConfig();
   statusBar.showLoading();
 
-  // 1. Resolve token
-  const tokenResult = await resolveToken(config.manualToken);
+  // 1. Resolve token and read stats-cache in parallel
+  const [tokenResult, statsCacheResult] = await Promise.all([
+    resolveToken(config.manualToken),
+    readStatsCache(),
+  ]);
+
+  if (statsCacheResult) {
+    lastStatsCacheSnapshot = statsCacheResult;
+  }
+
   if ("kind" in tokenResult) {
-    statusBar.showError(tokenResult);
-    if (lastErrorKind !== tokenResult.kind) {
-      lastErrorKind = tokenResult.kind;
-      await errorHandler.handleError(tokenResult);
+    // No valid token — fall back to stats-cache if available so Claude Max users still see data
+    if (lastStatsCacheSnapshot) {
+      lastSnapshot = null;
+      lastAdminSnapshot = null;
+      lastEnterpriseSnapshot = null;
+      statusBar.showStatsCacheUsage(lastStatsCacheSnapshot);
+      DetailPanel.updateIfOpen({ kind: "stats-cache", data: lastStatsCacheSnapshot });
+    } else {
+      statusBar.showError(tokenResult);
+      if (lastErrorKind !== tokenResult.kind) {
+        lastErrorKind = tokenResult.kind;
+        await errorHandler.handleError(tokenResult);
+      }
     }
     return;
   }
@@ -192,6 +227,12 @@ async function performOauthRefresh(
   // Enterprise accounts don't have five_hour / seven_day windows — detect and try enterprise path
   if (!apiResult.five_hour && !apiResult.seven_day) {
     await performEnterpriseRefresh(token, orgUuid, config);
+    // If enterprise couldn't provide data, fall back to stats-cache
+    if (!lastEnterpriseSnapshot && lastStatsCacheSnapshot) {
+      lastSnapshot = null;
+      statusBar.showStatsCacheUsage(lastStatsCacheSnapshot);
+      DetailPanel.updateIfOpen({ kind: "stats-cache", data: lastStatsCacheSnapshot });
+    }
     return;
   }
 

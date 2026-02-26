@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { UsageSnapshot, AdminSnapshot, EnterpriseSnapshot, HistoryTuple, DailyAggregate } from "./types";
+import { UsageSnapshot, AdminSnapshot, EnterpriseSnapshot, StatsCacheSnapshot, HistoryTuple, DailyAggregate } from "./types";
 import { parseResetAt } from "./statusBar";
 import { formatTokens } from "./adminApi";
 
@@ -10,6 +10,7 @@ type AnySnapshot =
   | { kind: "admin";       data: AdminSnapshot }
   | { kind: "enterprise";  data: EnterpriseSnapshot }
   | { kind: "enterprise-unavailable" }
+  | { kind: "stats-cache"; data: StatsCacheSnapshot }
   | null;
 
 const SHARED_CSS = `
@@ -235,6 +236,46 @@ function buildEnterpriseUnavailableHtml(): string {
   `);
 }
 
+function buildStatsCacheHtml(snapshot: StatsCacheSnapshot): string {
+  const models = Object.entries(snapshot.tokensByModel);
+  const modelRows = models.map(([model, count]) => `
+    <div class="stat-card">
+      <div class="stat-label">${model}</div>
+      <div class="stat-value">${formatTokens(count)}</div>
+      <div class="stat-sub">${count.toLocaleString()} tokens</div>
+    </div>`).join("");
+
+  const activityCards = snapshot.messageCountToday > 0 ? `
+    <div class="stat-card">
+      <div class="stat-label">Messages today</div>
+      <div class="stat-value">${snapshot.messageCountToday}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Sessions today</div>
+      <div class="stat-value">${snapshot.sessionCountToday}</div>
+    </div>` : "";
+
+  const totalCard = `
+    <div class="stat-card">
+      <div class="stat-label">Total tokens today</div>
+      <div class="stat-value">${formatTokens(snapshot.totalTokensToday)}</div>
+      <div class="stat-sub">${snapshot.totalTokensToday.toLocaleString()} tokens</div>
+    </div>`;
+
+  return htmlShell("Claude Meter (Stats Cache)", `
+    <div class="fetched">Last updated: ${snapshot.fetchedAt.toLocaleString()} · Date: ${snapshot.date}</div>
+    <div class="stat-grid">
+      ${totalCard}
+      ${activityCards}
+    </div>
+    ${models.length > 0 ? `<h3 style="margin-bottom:12px;font-size:0.95em;">By Model</h3><div class="stat-grid">${modelRows}</div>` : ""}
+    <div class="tip">
+      Data read from <code>~/.claude/stats-cache.json</code>.<br>
+      Token counts reflect today's usage as computed by Claude Code locally.
+    </div>
+  `);
+}
+
 export class DetailPanel {
   private static currentPanel: DetailPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
@@ -279,6 +320,7 @@ export class DetailPanel {
     if (snapshot.kind === "admin")                  { return buildAdminHtml(snapshot.data, history); }
     if (snapshot.kind === "enterprise")             { return buildEnterpriseHtml(snapshot.data); }
     if (snapshot.kind === "enterprise-unavailable") { return buildEnterpriseUnavailableHtml(); }
+    if (snapshot.kind === "stats-cache")            { return buildStatsCacheHtml(snapshot.data); }
     return buildOauthHtml(snapshot.data, history);
   }
 

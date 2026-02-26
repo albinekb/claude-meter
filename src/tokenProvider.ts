@@ -1,4 +1,3 @@
-import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as vscode from "vscode";
@@ -54,12 +53,11 @@ export function getCredentialsFilePaths(): string[] {
   return candidates;
 }
 
-function tryReadCredentialsFile(filePath: string): TokenResult | null {
+async function tryReadCredentialsFile(filePath: string): Promise<TokenResult | null> {
   try {
-    if (!fs.existsSync(filePath)) {
-      return null;
-    }
-    const raw = fs.readFileSync(filePath, "utf8");
+    const uri = vscode.Uri.file(filePath);
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    const raw = new TextDecoder().decode(bytes);
     const data: CredentialsFileShape = JSON.parse(raw) as CredentialsFileShape;
     const oauth = data.claudeAiOauth;
     if (!oauth?.accessToken) {
@@ -88,7 +86,7 @@ export async function resolveToken(
 
   // 2. Auto-detect from Claude Code credentials file
   for (const credPath of getCredentialsFilePaths()) {
-    const result = tryReadCredentialsFile(credPath);
+    const result = await tryReadCredentialsFile(credPath);
     if (result) {
       return result;
     }
