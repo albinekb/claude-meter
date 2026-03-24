@@ -82,7 +82,7 @@
           "type": "number",
           "default": 0.9,
           "minimum": 0.1,
-          "maximum": 1.0,
+          "maximum": 1,
           "description": "Show a warning notification when any usage window reaches this fraction (0.0–1.0). Set to 1.0 to disable."
         }
       }
@@ -91,12 +91,14 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.94.0",
     "@vscode/vsce": "^3.0.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.1"
   }
 }
